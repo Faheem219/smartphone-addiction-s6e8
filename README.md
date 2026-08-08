@@ -333,13 +333,18 @@ benefit from rebalancing at this scope.
 
 ## Packaging for the college repository
 
-Copy the project in as a subfolder:
+Copy the project in as a subfolder. Use `git archive`, which exports exactly the committed
+files — no competition data, no model artifacts, no caches, and no untracked scratch:
 
 ```bash
-rsync -av --exclude '.git' --exclude '.venv' --exclude 'data' \
-          --exclude 'models' --exclude 'submissions' --exclude '__pycache__' \
-          ./ <college-repo>/smartphone-addiction-s6e8/
+mkdir -p <college-repo>/smartphone-addiction-s6e8
+git archive HEAD | tar -x -C <college-repo>/smartphone-addiction-s6e8/
 ```
+
+That yields roughly 1 MB: source, tests and fixtures, config, Docker and CI definitions,
+the phase specs, and the committed evidence in `reports/`. An `rsync` of the working tree is
+*not* equivalent — it drags in `reports/oof_predictions.csv` (44 MB), `.pytest_cache/`,
+`.ruff_cache/` and `.DS_Store` unless every one is excluded by hand.
 
 > **CI does not run from the college-repo copy.** GitHub Actions only executes workflows
 > located at `.github/workflows/` in the **repository root**. Once this project sits inside
