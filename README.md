@@ -126,6 +126,7 @@ smartphone-addiction-s6e8/
 ├── reports/
 │   ├── data_contract.md                # committed evidence
 │   ├── metrics.json                    # committed evidence
+│   ├── leaderboard.png                 # committed evidence: the scored submission
 │   ├── figures/*.png                   # committed evidence
 │   └── oof_predictions.csv             # gitignored, ~44 MB
 ├── submissions/                        # gitignored
@@ -198,6 +199,11 @@ Five-fold stratified CV, seed 42, metric ROC AUC. Numbers below are from
 | Rank | **601 of 1104** |
 | Entries | 1 |
 
+![Public leaderboard — Faheem219 at rank 601 with a score of 0.96506](reports/leaderboard.png)
+
+<sub>Public leaderboard, captured 8 August 2026 immediately after the submission scored.
+Note how tightly packed this region is: ranks 600 to 610 span 0.96507 down to 0.96498.</sub>
+
 **The leaderboard score is ~0.0013 *above* CV, which is expected rather than suspicious.**
 Each out-of-fold prediction comes from a single model trained on 4/5 of the data, whereas
 every test prediction is the average of five such models. Averaging reduces variance, so
@@ -257,7 +263,7 @@ Every practice below is a real file in this repository, not a description of int
 | **Build automation** | [`Makefile`](Makefile) — twelve `.PHONY` targets; `PY ?=` rather than `:=` specifically so the image can override it with `ENV PY=python`. |
 | **Configuration as data** | [`config/default.yaml`](config/default.yaml) holds paths, seed, contract overrides, CV settings, metric, preprocessing and per-model hyperparameters. `config/ci.yaml` is the same schema at a CI-sized budget. `src/` contains no magic numbers. |
 | **Reproducibility** | `project.seed: 42` threaded through the CV splitter and every estimator. Four independent host runs produced byte-identical submissions. |
-| **Artifact management** | `reports/data_contract.md`, `reports/metrics.json` and `reports/figures/*.png` are committed as graded evidence; CI additionally uploads them per run as workflow artifacts. |
+| **Artifact management** | `reports/data_contract.md`, `reports/metrics.json`, `reports/figures/*.png` and the leaderboard screenshot at `reports/leaderboard.png` are committed as graded evidence; CI additionally uploads the generated ones per run as workflow artifacts. |
 | **Observability** | Structured `logging` throughout, configured once in `src/cli.py`; per-fold progress with a live ETA, LightGBM's per-iteration output routed through Python logging so it carries the same timestamps, and a distribution summary of the written submission. `runtime.progress: false` collapses this to stage-level lines for CI. No `print()` anywhere in `src/`. |
 
 ## Reproducibility
