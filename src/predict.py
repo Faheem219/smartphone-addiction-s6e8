@@ -23,15 +23,36 @@ LOGGER = logging.getLogger(__name__)
 NO_MODELS_MESSAGE = "No trained models found in {models_dir}. Run `make train` first."
 
 
+def _fold_index(path: Path, name: str) -> int | None:
+    """Parse the fold index out of a `{name}_fold{k}.pkl` filename, or None if it is not one.
+
+    Filenames that merely resemble the pattern are rejected rather than crashing. Docker
+    Desktop bind mounts on macOS have been observed creating duplicates such as
+    `lightgbm_fold0 2.pkl`, which the glob matches but `int()` cannot parse.
+    """
+    suffix = path.stem.removeprefix(f"{name}_fold")
+    return int(suffix) if suffix.isdigit() else None
+
+
 def _fold_model_paths(models_dir: Path, name: str) -> list[Path]:
     """Return one model's fold artifacts, ordered by fold index rather than lexically."""
-    paths = sorted(
-        models_dir.glob(f"{name}_fold*.pkl"),
-        key=lambda path: int(path.stem.rsplit("fold", 1)[-1]),
-    )
-    if not paths:
+    indexed = [
+        (index, path)
+        for path in models_dir.glob(f"{name}_fold*.pkl")
+        if (index := _fold_index(path, name)) is not None
+    ]
+    if not indexed:
         raise FileNotFoundError(NO_MODELS_MESSAGE.format(models_dir=models_dir))
-    return paths
+    skipped = len(list(models_dir.glob(f"{name}_fold*.pkl"))) - len(indexed)
+    if skipped:
+        LOGGER.warning(
+            "ignored %d file(s) in %s matching '%s_fold*.pkl' but not '%s_fold<int>.pkl'",
+            skipped,
+            models_dir,
+            name,
+            name,
+        )
+    return [path for _, path in sorted(indexed)]
 
 
 def _predict_one(model: Any, x_test: np.ndarray, contract: DataContract) -> np.ndarray:

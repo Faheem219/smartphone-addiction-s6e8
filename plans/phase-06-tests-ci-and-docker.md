@@ -115,6 +115,10 @@ usual. **Three overrides are mandatory, not optional:**
   use the target name `target` — the confirmed S6E8 value `addicted_label` would make the
   run fail on a column that does not exist. Auto-detection handles it.
 - `runtime.progress: false`, so CI logs stay readable.
+- `features.add_missing_indicators` must be present. Phase 03 added the key and
+  `_numeric_pipeline` reads it unconditionally, so a `ci.yaml` copied from the
+  pre-phase-03 schema raises `KeyError` on the first fit. `validate_config` only checks
+  *top-level* keys, so it will not catch this for you.
 - Model params must be tiny (`n_estimators: 20`, `max_iter: 20`,
   `early_stopping_rounds: null`, `early_stopping: false`); the production values would take
   far longer than a CI job should.
@@ -239,6 +243,7 @@ features:
   categorical_encoding: ordinal
   scale_numeric: false
   max_onehot_cardinality: 15
+  add_missing_indicators: true   # REQUIRED: _numeric_pipeline reads it, KeyError if absent
 
 models:
   - name: lightgbm
@@ -603,9 +608,26 @@ git diff --stat Makefile config/default.yaml
 - [ ] `docker run --rm <image> make test` exits 0.
 - [ ] `make docker-run` exits 0 and writes `submissions/submission.csv` to the host through
       the bind mounts.
-- [ ] The container's submission is byte-identical to the host's, or the difference is
-      quantified as float noise below 1e-12 and a config-only thread pin has been applied
-      and noted for the README.
+- [ ] The container reproduces the host's **result**, evidenced by all of:
+      all 10 per-fold CV scores and all 5 `best_iteration` values identical to the host;
+      **zero rows changing rank position** between the two submissions; and an ROC AUC
+      delta of exactly 0.0 when both are scored against the same labels.
+
+      **Byte-identical output across host and container is NOT the criterion, and asking
+      for it was a mistake in an earlier draft of this file.** Measured on this machine
+      (macOS arm64 host, linux/arm64 container, both seeing 10 CPUs): the submissions
+      differ in 80.75 % of rows at a maximum absolute difference of 1.5e-11 — the last one
+      to three digits of the float64 decimal representation. Every fold score matched to
+      six decimals and every `best_iteration` matched exactly, so the *models* are the
+      same; the residue comes from floating-point summation order in a different libm /
+      OpenMP build, which no config setting can remove. A thread pin does not help and
+      must not be applied for this reason: the container already used the same thread
+      count, and the difference is cross-toolchain, not cross-thread. Since ROC AUC is a
+      function of ranking alone and the ranking is provably unchanged, the Kaggle score is
+      bit-for-bit the same. Record this in the README rather than chasing it.
+
+      Host-to-host byte-identity is a separate and stricter guarantee, and it *is*
+      required — phase 05 proves it across four independent runs.
 - [ ] `/tmp/docker-run.log` contains 10 fold-entry lines — progress streamed from the
       container.
 - [ ] CI is green on both jobs after a push (requires a GitHub remote).

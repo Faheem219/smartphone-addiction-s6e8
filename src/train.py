@@ -45,10 +45,11 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _log_progress(done: int, total: int, elapsed: float) -> None:
+def _log_progress(done: int, total: int, elapsed: float, progress: bool = True) -> None:
     """Log cumulative elapsed time and an ETA derived from mean fold time so far."""
     mean = elapsed / done
-    LOGGER.info(
+    log = LOGGER.info if progress else LOGGER.debug
+    log(
         "progress %d/%d model-folds | elapsed %.1fs | mean %.1fs/fold | est. remaining %.1fs",
         done,
         total,
@@ -154,7 +155,8 @@ def _fit_fold(
         model.fit(x_tr, y_tr, **_lgbm_fit_kwargs(spec, cfg, x_val, y_val, metric_name))
     else:
         model.fit(x_tr, y_tr)
-    return model, _oof_predict(model, x_val, contract), getattr(model, "best_iteration_", None)
+    best_iteration = getattr(model, "best_iteration_", None) or None
+    return model, _oof_predict(model, x_val, contract), best_iteration
 
 
 def _allocate_oof(contract: DataContract, n_rows: int) -> np.ndarray:
@@ -178,13 +180,16 @@ def _train_one_model(
     """Fit every fold for one model, accumulating OOF predictions, scores, and timings."""
     models_dir = Path(cfg["paths"]["models_dir"])
     n_splits = int(cfg["cv"]["n_splits"])
+    # CLAUDE.md §7a: progress false means stage-level logging only, so the per-fold lines
+    # drop to DEBUG. Nothing downstream may depend on progress being true.
+    log = LOGGER.info if bool(cfg["runtime"]["progress"]) else LOGGER.debug
     oof = _allocate_oof(contract, len(y_all))
     scores: list[float] = []
     seconds: list[float] = []
     best_iterations: list[int | None] = []
 
     for fold, (train_idx, val_idx) in enumerate(splitter.split(x_all, y_all)):
-        LOGGER.info(
+        log(
             "%s | fold %d/%d | fit rows=%d val rows=%d",
             spec["name"],
             fold + 1,
@@ -203,7 +208,7 @@ def _train_one_model(
         scores.append(score)
         seconds.append(fold_seconds)
         best_iterations.append(best_iteration)
-        LOGGER.info(
+        log(
             "%s | fold %d/%d | %s=%.6f | %.1fs%s",
             spec["name"],
             fold + 1,
@@ -332,10 +337,12 @@ def run_train(cfg: dict[str, Any]) -> dict[str, Any]:
     total = len(specs) * int(cfg["cv"]["n_splits"])
     done = 0
 
+    progress = bool(cfg["runtime"]["progress"])
+
     def on_fold_done() -> None:
         nonlocal done
         done += 1
-        _log_progress(done, total, time.perf_counter() - started)
+        _log_progress(done, total, time.perf_counter() - started, progress)
 
     results: dict[str, dict[str, Any]] = {}
     for index, spec in enumerate(specs, start=1):
