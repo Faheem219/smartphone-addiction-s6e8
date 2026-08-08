@@ -49,8 +49,22 @@ thresholds before calling a metric.
 ### `src/features.py` specification (Implementation Plan §3.4)
 
 - `build_preprocessor(contract, cfg) -> ColumnTransformer` using sklearn `Pipeline`s:
-  - numeric branch: `SimpleImputer(strategy=cfg.features.numeric_imputation)`, plus
-    `StandardScaler` only if `scale_numeric` is true.
+  - numeric branch: `SimpleImputer(strategy=cfg.features.numeric_imputation,
+    add_indicator=cfg.features.add_missing_indicators)`, plus `StandardScaler` only if
+    `scale_numeric` is true.
+
+    **`add_missing_indicators` is new since the plan was first written.** Phase 02 measured
+    the real data and found *every* feature carries 4.2 %–19.4 % missing values. Median
+    imputation at that scale maps "unknown" onto "typical" and throws away a pattern that is
+    plausibly predictive. `add_indicator=True` appends one binary column per numeric feature
+    that had missing values at fit time — sklearn's `features="missing-only"` behaviour, so
+    the count depends on the fit data, not on the feature count. It adds no dependency and
+    introduces no leakage. The categorical branch is unchanged.
+
+    Consequence for shapes, which the tests below assert: the `clf` fixture has NaNs in `n1`
+    and `n2` only, so its numeric branch emits 4 imputed + **2 indicator** = 6 columns, and
+    the default ordinal output is **8** columns, not 6. On the real data it is 9 + 9 + 3 =
+    **21** columns.
   - categorical branch: `SimpleImputer(strategy=...)` then either
     `OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)` or
     `OneHotEncoder(handle_unknown="ignore", sparse_output=False)` per config. If
@@ -124,6 +138,7 @@ features:
   categorical_encoding: ordinal    # ordinal | onehot
   scale_numeric: false             # tree models don't need it
   max_onehot_cardinality: 15
+  add_missing_indicators: true     # one binary column per numeric feature with NaNs at fit
 
 metric:
   name: roc_auc
@@ -233,7 +248,13 @@ persisted preprocessor sees identical column order at fit and transform time.
 
 ```python
 steps: list[tuple[str, Any]] = [
-    ("impute", SimpleImputer(strategy=str(cfg["features"]["numeric_imputation"]))),
+    (
+        "impute",
+        SimpleImputer(
+            strategy=str(cfg["features"]["numeric_imputation"]),
+            add_indicator=bool(cfg["features"]["add_missing_indicators"]),
+        ),
+    ),
 ]
 if bool(cfg["features"]["scale_numeric"]):
     steps.append(("scale", StandardScaler()))
@@ -489,11 +510,12 @@ return "roc_auc" if contract.is_binary else "accuracy"
 | Test | Asserts |
 |---|---|
 | `test_preprocessor_output_has_no_nans` | Fit-transform the `clf` train features: output has zero NaNs despite the injected ones. |
-| `test_ordinal_output_shape` | Default config (`ordinal`): output has 6 columns — 4 numeric then `c1`, `c2`. |
-| `test_unseen_category_encodes_to_minus_one` | Fit on train, transform test: `transformed[0, 4] == -1` (row 0's `c1` is `"z"`), and transforming does not raise. |
-| `test_onehot_high_cardinality_falls_back_to_ordinal` | `features={"categorical_encoding": "onehot"}` with `train` passed: output has 8 columns (4 numeric + 3 one-hot `c1` + 1 ordinal `c2`), and `caplog` contains `max_onehot_cardinality`. |
-| `test_onehot_without_train_onehots_everything` | Same config but `train=None`: 25 columns (4 + 3 + 18). |
-| `test_scale_numeric_standardises` | `features={"scale_numeric": True}`: the first four output columns have mean ≈ 0 and std ≈ 1. |
+| `test_ordinal_output_shape` | Default config (`ordinal`): output has 8 columns — 4 imputed numeric, 2 missing indicators (`n1`, `n2`), then `c1`, `c2`. |
+| `test_unseen_category_encodes_to_minus_one` | Fit on train, transform test: `transformed[0, 6] == -1` (row 0's `c1` is `"z"`; index 6 because two indicator columns precede the categoricals), and transforming does not raise. |
+| `test_onehot_high_cardinality_falls_back_to_ordinal` | `features={"categorical_encoding": "onehot"}` with `train` passed: output has 10 columns (4 numeric + 2 indicators + 3 one-hot `c1` + 1 ordinal `c2`), and `caplog` contains `max_onehot_cardinality`. |
+| `test_onehot_without_train_onehots_everything` | Same config but `train=None`: 27 columns (4 + 2 + 3 + 18). |
+| `test_scale_numeric_standardises` | `features={"scale_numeric": True}`: the first four output columns have mean ≈ 0 and std ≈ 1. The scaler sits after the imputer, so it also scales the indicator columns; that is harmless and untested. |
+| `test_missing_indicators_can_be_disabled` | `features={"add_missing_indicators": False}`: output is 6 columns and `c1` returns to index 4. |
 | `test_invalid_encoding_raises` | `features={"categorical_encoding": "target"}` raises `ValueError` naming both valid options. |
 | `test_select_features_orders_columns` | `select_features` returns exactly `contract.feature_columns`, in that order. |
 | `test_select_features_missing_column_raises` | Dropping `n2` from the frame raises `ValueError` mentioning `n2`. |
@@ -592,12 +614,13 @@ xt = pre.fit_transform(select_features(train, c))
 xs = pre.transform(select_features(test, c))
 y, enc = encode_target(train[c.target_column], c)
 print('train X shape :', xt.shape, '| NaNs:', int(np.isnan(xt).sum()))
+print('feature names :', list(pre.get_feature_names_out()))
 print('test  X shape :', xs.shape, '| NaNs:', int(np.isnan(xs).sum()))
-print('unseen c1 code:', xs[0, 4])
+print('unseen c1 code:', xs[0, 6])
 print('y values      :', sorted(set(y.tolist())), '| classes:', list(enc.classes_))
-assert xt.shape == (60, 6), xt.shape
+assert xt.shape == (60, 8), xt.shape
 assert np.isnan(xt).sum() == 0 and np.isnan(xs).sum() == 0
-assert xs[0, 4] == -1, xs[0, 4]
+assert xs[0, 6] == -1, xs[0, 6]
 assert sorted(set(y.tolist())) == [0, 1]
 print('preprocessor ok')
 "
@@ -619,11 +642,11 @@ train, _, sub = load_raw(cfg)
 c = derive_contract(train, sub, cfg)
 out = build_preprocessor(c, cfg, train).fit_transform(select_features(train, c))
 print('onehot+fallback shape:', out.shape)
-assert out.shape == (60, 8), out.shape
+assert out.shape == (60, 10), out.shape
 print('fallback ok')
 "
 # expect: a WARNING line naming c2, cardinality 18 and max_onehot_cardinality 15
-# expect: onehot+fallback shape: (60, 8)  then  fallback ok
+# expect: onehot+fallback shape: (60, 10)  then  fallback ok
 
 # 6. Metric resolution on the real contract, and the roc_auc guard.
 .venv/bin/python -c "
@@ -707,10 +730,12 @@ ls src/
       `test_models.py`, `test_metrics.py` all collected and passing.
 - [ ] `src/features.py`, `src/models.py`, `src/metrics.py`, `tests/test_features.py`,
       `tests/test_models.py`, `tests/test_metrics.py` exist.
-- [ ] Fitting the default (`ordinal`) preprocessor on the `clf` fixture gives a `(60, 6)`
-      array with zero NaNs; transforming the test fixture gives `(20, 6)` with zero NaNs.
+- [ ] Fitting the default (`ordinal`) preprocessor on the `clf` fixture gives a `(60, 8)`
+      array with zero NaNs — 4 imputed numeric, 2 missing indicators, 2 ordinal categoricals
+      — and transforming the test fixture gives `(20, 8)` with zero NaNs.
+- [ ] `features={"add_missing_indicators": False}` narrows that to `(60, 6)`.
 - [ ] The unseen category `"z"` transforms to `-1`, not an exception.
-- [ ] `categorical_encoding: onehot` with `max_onehot_cardinality: 15` produces `(60, 8)`
+- [ ] `categorical_encoding: onehot` with `max_onehot_cardinality: 15` produces `(60, 10)`
       and logs a warning naming `c2`.
 - [ ] `resolve_metric` returns `roc_auc` for a binary contract under both `auto` and the
       explicit name, `accuracy` for `n_classes == 3`, and `rmse` for regression.

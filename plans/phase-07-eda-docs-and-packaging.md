@@ -249,15 +249,24 @@ and return `None` — do not fail. Otherwise take `model.feature_importances_` a
 names:
 
 ```python
-names = contract.feature_columns
+names: list[str] = []
+preprocessor_path = models_dir / "preprocessor.pkl"
+if preprocessor_path.is_file():
+    names = list(load_preprocessor(preprocessor_path).get_feature_names_out())
 if len(names) != len(importances):
     names = [f"f{index}" for index in range(len(importances))]
 ```
 
-The length check matters: the transformed matrix matches `contract.feature_columns` one-to-one
-only under the default `categorical_encoding: ordinal`. Under `onehot` the widths differ, and
-generic names are better than mislabelled ones. Sort ascending, plot `barh`, save as
-`feature_importance.png`.
+**Take the names from the persisted preprocessor, not from `contract.feature_columns`.** The
+transformed matrix is wider than the contract's feature list: `features.add_missing_indicators`
+is true, so the real data yields 21 columns from 12 features — 9 imputed numeric, 9
+`missingindicator_*` columns, 3 ordinal categoricals. `get_feature_names_out()` returns exactly
+those 21 names in order (verified in phase 03), which makes the plot readable and, incidentally,
+shows how much signal the missingness itself carries. The length check is the fallback for a
+config where the widths still disagree — generic names beat mislabelled ones. Sort ascending,
+plot `barh`, save as `feature_importance.png`.
+
+Import `load_preprocessor` from `src.features` for this.
 
 **`main() -> int`**
 Parse `--config` (default `config/default.yaml`) and `--log-level` (default `INFO`);

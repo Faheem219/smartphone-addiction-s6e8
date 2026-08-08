@@ -164,6 +164,7 @@ features:
   categorical_encoding: ordinal    # ordinal | onehot
   scale_numeric: false             # tree models don't need it
   max_onehot_cardinality: 15
+  add_missing_indicators: true     # see §3.4; missingness is informative in this dataset
 
 models:
   # Each entry is trained across all folds; predictions are blended by weight.
@@ -264,8 +265,23 @@ only exercised by the regression fixture in the test suite. Keep it working anyw
 
 ### 3.4 `src/features.py`
 - `build_preprocessor(contract, cfg) -> ColumnTransformer` using sklearn `Pipeline`s:
-  - numeric branch: `SimpleImputer(strategy=cfg.features.numeric_imputation)`,
-    plus `StandardScaler` only if `scale_numeric` is true.
+  - numeric branch: `SimpleImputer(strategy=cfg.features.numeric_imputation,
+    add_indicator=cfg.features.add_missing_indicators)`, plus `StandardScaler` only if
+    `scale_numeric` is true.
+
+    **Why the indicator.** Phase 02 measured the real data: *every* one of the 12 features
+    carries missing values, from 4.2 % (`age`) to 19.4 % (`social_media_hours`). Median
+    imputation on that scale maps "unknown" onto "typical" and destroys a pattern that is
+    plausibly predictive here — a user who did not report gaming hours is probably not a
+    heavy gamer. `add_indicator=True` keeps the imputed value *and* records that it was
+    imputed, appending one binary column per numeric feature that had missing values at fit
+    time (sklearn's `features="missing-only"` behaviour). It adds no dependency and no
+    leakage. On the real data that widens the matrix from 12 to 21 columns: 9 imputed
+    numeric + 9 indicators + 3 ordinal-encoded categoricals.
+
+    The categorical branch keeps plain `most_frequent` imputation and gains no indicator —
+    its encoded output is already a discrete code, and `categorical_imputation` is what
+    config exposes for it.
   - categorical branch: `SimpleImputer(strategy=...)` then either
     `OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)` or
     `OneHotEncoder(handle_unknown="ignore", sparse_output=False)` per config.

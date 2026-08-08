@@ -45,6 +45,11 @@ features:
   categorical_encoding: ordinal # ordinal | onehot
   scale_numeric: false # tree models don't need it
   max_onehot_cardinality: 15
+  # Every feature in this dataset has 4-19% missing values (see reports/data_contract.md).
+  # Median imputation alone collapses "unknown" into "typical" and discards that signal, so
+  # SimpleImputer(add_indicator=True) appends one binary column per numeric feature that had
+  # missing values at fit time. Set false to impute without preserving the pattern.
+  add_missing_indicators: true
 
 models:
   # Each entry is trained across all folds; predictions are blended by weight.

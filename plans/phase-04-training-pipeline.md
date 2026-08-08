@@ -590,10 +590,12 @@ contract, _ = load_contract(Path('models/contract.json'))
 pre = load_preprocessor(Path('models/preprocessor.pkl'))
 x = pre.transform(select_features(test, contract))
 print('transformed test:', x.shape)
-assert x.shape == (296302, 12), x.shape
+assert x.shape == (296302, 21), x.shape
 print('preprocessor ok')
 "
-# expect: transformed test: (296302, 12), preprocessor ok
+# expect: transformed test: (296302, 21), preprocessor ok
+#   21 = 9 imputed numeric + 9 missing indicators + 3 ordinal categoricals, because
+#   features.add_missing_indicators is true and all 9 numeric columns have NaNs.
 
 # 13. Fold artifacts are real fitted estimators with predict_proba.
 .venv/bin/python -c "
@@ -653,7 +655,7 @@ git diff --stat Makefile config/default.yaml
 - [ ] `load_contract('models/contract.json')` returns a binary contract with 9 numeric and
       3 categorical features plus a 2-element `label_classes`.
 - [ ] `load_preprocessor('models/preprocessor.pkl').transform(select_features(test, c))`
-      returns shape `(296302, 12)`.
+      returns shape `(296302, 21)` (9 numeric + 9 missing indicators + 3 categorical).
 - [ ] `/tmp/train.log` contains 10 fold-entry lines, 10 `est. remaining` lines, 5
       `best_iteration=` lines, and timestamped per-iteration LightGBM lines.
 - [ ] `grep -rn "print(" src/` finds nothing.
