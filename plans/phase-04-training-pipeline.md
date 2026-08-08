@@ -80,7 +80,10 @@ Because runs are long, progress reporting is a functional requirement, verbatim 
 2. Build and fit preprocessor; transform X; encode y.
 3. For each enabled model, for each CV fold:
    - log the fold header before fitting
-   - fit on the fold's train indices. For LightGBM, pass `eval_set=[(X_val, y_val)]`,
+   - fit on the fold's train indices. For LightGBM, pass `eval_X=X_val, eval_y=y_val`
+     (**not** `eval_set=[(X_val, y_val)]` — LightGBM 4.7 deprecates that form and warns on
+     every fit, which would pollute the progress output §7a requires to stay readable;
+     `requirements.txt` therefore pins `lightgbm~=4.7`, where `eval_X`/`eval_y` exist),
      `eval_metric` matching the resolved metric where LightGBM supports it (`auc` for
      binary), and `callbacks=[log_evaluation(period=runtime.log_every_n_iterations)]` when
      `runtime.progress` is true. When the model's `early_stopping_rounds` is not null, add
@@ -295,7 +298,7 @@ if progress and period > 0:
 rounds = spec.get("early_stopping_rounds")
 if rounds:
     callbacks.append(lgb.early_stopping(stopping_rounds=int(rounds), verbose=progress))
-kwargs: dict[str, Any] = {"eval_set": [(x_val, y_val)]}
+kwargs: dict[str, Any] = {"eval_X": x_val, "eval_y": y_val}
 eval_metric = LGBM_EVAL_METRIC.get(metric_name)
 if eval_metric:
     kwargs["eval_metric"] = eval_metric
@@ -643,8 +646,12 @@ git diff --stat Makefile config/default.yaml
 - [ ] `blend.weights` sums to 1.0 and `blend.score` is a finite float in `(0.6, 1.0]`.
 - [ ] `blend.score >= min(per_model[*].mean)`.
 - [ ] `runtime_seconds` is a positive finite float; `fold_seconds` has 5 entries per model.
-- [ ] `best_iterations["lightgbm"]` has 5 integer entries, each < 3000 (early stopping
-      fired).
+- [ ] `best_iterations["lightgbm"]` has 5 integer entries, **each strictly below the
+      configured `n_estimators`** — proving early stopping, not the cap, ended every fold.
+      Likewise every `hist_gbm` fold's `n_iter_` must be below its `max_iter`. If any fold
+      sits at its cap the model was still improving, the reported CV understates what the
+      data supports, and the fix is to raise that cap in `config/default.yaml` and re-run
+      (CLAUDE.md §2: spend the budget on more estimators). This is a config-only change.
 - [ ] `config_snapshot` is present and `json.dumps`-able — no `Path` or numpy scalar
       survived.
 - [ ] `reports/oof_predictions.csv` has 691,369 rows and columns

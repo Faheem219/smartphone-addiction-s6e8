@@ -169,6 +169,11 @@ features:
 models:
   # Each entry is trained across all folds; predictions are blended by weight.
   # Sized for accuracy, not speed — there is no time limit. Expect tens of minutes.
+  # The caps are deliberately generous so that EARLY STOPPING, not the cap, decides where
+  # each fold ends. A first run at n_estimators 3000 / max_iter 1000 finished with LightGBM
+  # best_iteration at 2794-3000 and hist_gbm at 941-1000 on 4 of 5 folds — both models were
+  # still improving when they ran out of budget, which understates the achievable score and
+  # makes the reported CV depend on the cap rather than on the data.
   - name: lightgbm
     enabled: true
     weight: 0.7
@@ -177,7 +182,7 @@ models:
     # train the full n_estimators.
     early_stopping_rounds: 100
     params:
-      n_estimators: 3000
+      n_estimators: 10000
       learning_rate: 0.03
       num_leaves: 63
       min_child_samples: 50
@@ -192,7 +197,7 @@ models:
     weight: 0.3
     early_stopping_rounds: null   # hist_gbm early-stops internally, see params below
     params:
-      max_iter: 1000
+      max_iter: 4000
       learning_rate: 0.04
       max_leaf_nodes: 63
       min_samples_leaf: 50
@@ -328,8 +333,9 @@ only exercised by the regression fixture in the test suite. Keep it working anyw
 3. For each enabled model, for each CV fold:
    - log the fold header before fitting, per `CLAUDE.md` §7a
    - fit on the fold's train indices. For LightGBM, pass
-     `eval_set=[(X_val, y_val)]`, `eval_metric` matching the resolved metric where
-     LightGBM supports it (`auc` for binary), and
+     `eval_X=X_val, eval_y=y_val` — **not** the older `eval_set=[(X_val, y_val)]` form,
+     which LightGBM 4.7 deprecates with a warning on every fit — plus `eval_metric`
+     matching the resolved metric where LightGBM supports it (`auc` for binary), and
      `callbacks=[log_evaluation(period=runtime.log_every_n_iterations)]` when
      `runtime.progress` is true. When the model's `early_stopping_rounds` is not null,
      add `early_stopping(stopping_rounds=..., verbose=progress)` and log the chosen
@@ -544,7 +550,7 @@ Pin minor versions, e.g.:
 pandas~=2.2
 numpy~=1.26
 scikit-learn~=1.5
-lightgbm~=4.5
+lightgbm~=4.7
 pyyaml~=6.0
 matplotlib~=3.9
 joblib~=1.4
@@ -553,6 +559,11 @@ ruff~=0.6
 ```
 If any pin fails to resolve on Python 3.11, relax that single pin and note it in the
 README — do not swap the library.
+
+`lightgbm~=4.7` is tighter than the 4.5 originally written here: `eval_X`/`eval_y` only
+exist from 4.7, and §3.7 uses them because 4.7 deprecates `eval_set`. Measured resolutions
+on Python 3.11: pandas 2.3.3, numpy 1.26.4, scikit-learn 1.9.0, lightgbm 4.7.0, pyyaml
+6.0.3, matplotlib 3.11.1, joblib 1.5.3, pytest 8.4.2, ruff 0.16.2 — all inside their pins.
 
 ### 5.5 `pyproject.toml`
 Ruff config only (`line-length = 100`, `select = ["E","F","I","UP","B"]`), plus
