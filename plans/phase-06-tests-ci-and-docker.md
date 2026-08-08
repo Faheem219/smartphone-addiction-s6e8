@@ -347,6 +347,11 @@ Points to get right:
   YAML block scalar is easy to break on indentation, and this check is too important to lose
   to whitespace.
 - `data/raw/` exists in the checkout because phase 01 committed `data/raw/.gitkeep`.
+- **`pyproject.toml` must set `pythonpath = ["."]` under `[tool.pytest.ini_options]`.**
+  The workflow runs bare `pytest -q`, but the Makefile runs `python -m pytest`, and only
+  `python -m` puts the working directory on `sys.path`. Without the setting, CI fails with
+  `ModuleNotFoundError: No module named 'src'` while `make test` passes locally — observed
+  on the first push. It also means a grader typing plain `pytest` gets a green suite.
 - The `inspect` step is included ahead of `train`. Implementation Plan §5.3 lists only train
   and predict; adding `inspect` exercises the third subcommand for free and matches what
   `make all` does.
