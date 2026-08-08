@@ -10,6 +10,7 @@ import lightgbm as lgb
 
 from src.config import load_config
 from src.contract import run_inspect
+from src.predict import run_predict
 from src.train import run_train
 
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
@@ -40,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("inspect", "derive the data contract and write a report"),
         ("train", "run cross-validated training"),
+        ("predict", "write a submission from the trained fold models"),
     ):
         sub = subparsers.add_parser(name, help=help_text)
         sub.add_argument("--config", default=DEFAULT_CONFIG, help="path to a YAML config")
@@ -57,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
             run_inspect(cfg)
         elif args.command == "train":
             run_train(cfg)
+        elif args.command == "predict":
+            run_predict(cfg)
     except (FileNotFoundError, ValueError, KeyError) as exc:
         LOGGER.error("%s", exc)
         return 1

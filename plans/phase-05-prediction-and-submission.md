@@ -339,9 +339,18 @@ make test
 # expect: inspect, train, predict
 
 # 4. Missing-models path is actionable, not a traceback.
-mv models /tmp/models-backup
-.venv/bin/python -m src.cli predict --config config/default.yaml; echo "exit=$?"
-mv /tmp/models-backup models
+#    DO NOT move models/ aside to test this: run_predict calls ensure_dirs, which
+#    immediately recreates an empty models/, so `mv` back nests the backup inside it and
+#    can strand the artifacts (observed in practice — they landed in a directory named
+#    "models 2"). Point a throwaway config at a nonexistent models_dir instead.
+.venv/bin/python - "$TMPDIR/no-models.yaml" <<'EOF'
+import sys, yaml
+from pathlib import Path
+cfg = yaml.safe_load(Path("config/default.yaml").read_text())
+cfg["paths"]["models_dir"] = "definitely-no-models-here"
+Path(sys.argv[1]).write_text(yaml.safe_dump(cfg))
+EOF
+.venv/bin/python -m src.cli predict --config "$TMPDIR/no-models.yaml"; echo "exit=$?"
 # expect: one ERROR line mentioning "Run `make train` first.", then exit=1
 
 # 5. Generate the submission.
